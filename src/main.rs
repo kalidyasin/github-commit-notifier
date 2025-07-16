@@ -84,6 +84,10 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     let token = env::var("GITHUB_TOKEN")?;
     let orgs = env::var("ORGS")?;
+    let sleep_secs = env::var("SLEEP_SECS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(60);
 
     let mut headers = HeaderMap::new();
     headers.insert(USER_AGENT, HeaderValue::from_static("reqwest"));
@@ -138,6 +142,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             eprintln!("An error occurred: {}. Retrying in 10 seconds...", e);
         }
 
-        time::sleep(Duration::from_secs(10)).await;
+        time::sleep(Duration::from_secs(sleep_secs)).await;
     }
 }
