@@ -7,9 +7,15 @@ use serde::Deserialize;
 use tokio::time;
 
 #[derive(Deserialize, Debug)]
+struct Author {
+    login: String,
+}
+
+#[derive(Deserialize, Debug)]
 struct Commit {
     sha: String,
     html_url: String,
+    author: Option<Author>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -99,8 +105,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     if let Some(last_commit_sha) = last_commits.get(&repo.full_name) {
                         if last_commit_sha != &commit.sha {
                             println!(
-                                "New commit in {}: {} - {}",
-                                repo.full_name, commit.sha, commit.html_url
+                                "New commit in {} by {}: {} - {}",
+                                repo.full_name,
+                                commit.author.as_ref().map_or("Unknown", |a| &a.login),
+                                commit.sha,
+                                commit.html_url
                             );
                             last_commits.insert(repo.full_name.clone(), commit.sha.clone());
                         }
