@@ -4,7 +4,7 @@ A simple yet powerful tool that monitors specified GitHub organizations for new 
 
 ## Features
 
-- **Real-Time Notifications**: Get instant alerts for new commits.
+- **Real-Time Notifications**: Get instant alerts for new commits, both in the terminal and via desktop notifications.
 - **Organization-Wide Monitoring**: Keep an eye on all repositories within one or more GitHub organizations.
 - **Detailed Commit Information**: Notifications include the repository name, commit author, commit message, and a direct link to the commit.
 - **Efficient and Fast**: Utilizes asynchronous requests to fetch data quickly without slowing you down.
@@ -14,6 +14,7 @@ A simple yet powerful tool that monitors specified GitHub organizations for new 
 ### Prerequisites
 
 - [Rust](https://www.rust-lang.org/tools/install) installed on your system.
+- `notify-send` installed on your system (for desktop notifications). This is usually available by default on most Linux distributions.
 - A GitHub personal access token with the `repo` scope. You can create one [here](https://github.com/settings/tokens).
 
 ### Installation
