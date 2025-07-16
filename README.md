@@ -34,6 +34,7 @@ A simple yet powerful tool that monitors specified GitHub organizations for new 
 
    - `GITHUB_TOKEN`: Your GitHub personal access token.
    - `ORGS`: A comma-separated list of GitHub organizations to monitor.
+   - `SLEEP_SECS`: (Optional) The interval in seconds between checks for new commits. Defaults to `60` if not set.
 
 3. **Build and run the application:**
 
