@@ -1,3 +1,4 @@
+use futures::future::join_all;
 use std::env;
 use std::error::Error;
 use std::time::Duration;
@@ -24,7 +25,7 @@ struct Commit {
     commit: CommitDetails,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 struct Repository {
     full_name: String,
 }
@@ -33,7 +34,7 @@ async fn get_latest_commit(
     client: &reqwest::Client,
     repo_full_name: &str,
     token: &str,
-) -> Result<Option<Commit>, Box<dyn Error>> {
+) -> Result<Option<Commit>, Box<dyn Error + Send + Sync>> {
     let url = format!(
         "https://api.github.com/repos/{}/commits",
         repo_full_name
@@ -56,7 +57,7 @@ async fn get_repositories(
     client: &reqwest::Client,
     org_name: &str,
     token: &str,
-) -> Result<Vec<Repository>, Box<dyn Error>> {
+) -> Result<Vec<Repository>, Box<dyn Error + Send + Sync>> {
     let url = format!("https://api.github.com/orgs/{}/repos", org_name);
     let response = client
         .get(&url)
@@ -78,7 +79,7 @@ async fn get_repositories(
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     dotenv::dotenv().ok();
 
     let token = env::var("GITHUB_TOKEN")?;
@@ -99,14 +100,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
         std::collections::HashMap::new();
 
     loop {
-        for org_name in orgs.split(',') {
-            println!("Fetching repositories for {}", org_name);
-            let repos = get_repositories(&client, org_name, &token).await?;
+        if let Err(e) = async {
+            let mut all_repos = Vec::new();
+            for org_name in orgs.split(',') {
+                println!("Fetching repositories for {}", org_name);
+                let repos = get_repositories(&client, org_name, &token).await?;
+                all_repos.extend(repos);
+            }
 
-            for repo in repos {
-                if let Ok(Some(commit)) =
-                    get_latest_commit(&client, &repo.full_name, &token).await
-                {
+            let commit_futures: Vec<_> = all_repos
+                .iter()
+                .map(|repo| get_latest_commit(&client, &repo.full_name, &token))
+                .collect();
+
+            let commit_results = join_all(commit_futures).await;
+
+            for (repo, result) in all_repos.iter().zip(commit_results) {
+                if let Ok(Some(commit)) = result {
                     if let Some(last_commit_sha) = last_commits.get(&repo.full_name) {
                         if last_commit_sha != &commit.sha {
                             println!(
@@ -123,8 +133,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     }
                 }
             }
+            Ok::<(), Box<dyn Error + Send + Sync>>( ())
+        }.await {
+            eprintln!("An error occurred: {}. Retrying in 10 seconds...", e);
         }
 
-        time::sleep(Duration::from_secs(1)).await;
+        time::sleep(Duration::from_secs(10)).await;
     }
 }
