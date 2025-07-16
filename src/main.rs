@@ -2,6 +2,7 @@ use futures::future::join_all;
 use std::env;
 use std::error::Error;
 use std::time::Duration;
+use std::process::Command;
 
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, USER_AGENT};
 use serde::Deserialize;
@@ -130,6 +131,13 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                                 commit.commit.message,
                                 commit.html_url
                             );
+                            let title = format!("New Commit in {}", repo.full_name);
+                            let body = format!("By {}: {}\nURL: {}", commit.commit.author.name, commit.commit.message, commit.html_url);
+                            Command::new("notify-send")
+                                .arg(&title)
+                                .arg(&body)
+                                .spawn()
+                                .expect("Failed to send notification");
                             last_commits.insert(repo.full_name.clone(), commit.sha.clone());
                         }
                     } else {
