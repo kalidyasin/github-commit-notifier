@@ -21,7 +21,7 @@ A simple yet powerful tool that monitors specified GitHub organizations for new 
 1. **Clone the repository:**
 
    ```bash
-   git clone https://github.com/your-username/github-commit-notifier.git
+   git clone https://github.com/kalidyasin/github-commit-notifier.git
    cd github-commit-notifier
    ```
 
