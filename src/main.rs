@@ -51,6 +51,7 @@ struct PullRequest {
 #[derive(Deserialize, Debug, Clone)]
 struct User {
     login: String,
+    name: Option<String>,
 }
 
 struct GithubClient {
@@ -70,7 +71,7 @@ impl GithubClient {
         Ok(Self { client })
     }
 
-    async fn get_paged<T: for<'de> Deserialize<'de>>(
+    async fn get_paged<T: serde::de::DeserializeOwned>(
         &self,
         url: &str,
         etag: Option<&str>,
@@ -113,6 +114,21 @@ impl GithubClient {
             Err(anyhow!(
                 "Failed to fetch commit {}: {}",
                 sha,
+                response.status()
+            ))
+        }
+    }
+
+    async fn get_user(&self, username: &str) -> Result<User> {
+        let url = format!("https://api.github.com/users/{}", username);
+        let response = self.client.get(&url).send().await?;
+        if response.status().is_success() {
+            let user = response.json().await?;
+            Ok(user)
+        } else {
+            Err(anyhow!(
+                "Failed to fetch user {}: {}",
+                username,
                 response.status()
             ))
         }
@@ -246,7 +262,17 @@ impl GithubNotifier {
             let seen_repo_prs = self.seen_prs.entry(repo.full_name.clone()).or_default();
             for pr in prs {
                 if !seen_repo_prs.contains(&pr.id) {
-                    new_prs_to_notify.push(pr.clone());
+                    match self.client.get_user(&pr.user.login).await {
+                        Ok(user) => {
+                            let mut pr_with_full_user = pr.clone();
+                            pr_with_full_user.user = user;
+                            new_prs_to_notify.push(pr_with_full_user);
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to get user details for {}: {}", pr.user.login, e);
+                            new_prs_to_notify.push(pr.clone());
+                        }
+                    }
                     seen_repo_prs.insert(pr.id);
                 }
             }
@@ -270,7 +296,8 @@ impl GithubNotifier {
 
     async fn notify_pr(&self, repo_full_name: &str, pr: &PullRequest) {
         let title = format!("New PR in {}", repo_full_name);
-        let body = format!("#{} {}\nBy: {}\nURL: {}", pr.id, pr.title, pr.user.login, pr.html_url);
+        let author_name = pr.user.name.as_deref().unwrap_or(&pr.user.login);
+        let body = format!("#{} {}\nBy: {}\nURL: {}", pr.id, pr.title, author_name, pr.html_url);
         println!("{} - {}", title, body);
         self.send_notification(&title, &body);
     }
