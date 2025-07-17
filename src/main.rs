@@ -1,5 +1,4 @@
 use anyhow::{anyhow, Context, Result};
-
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, ETAG, IF_NONE_MATCH, USER_AGENT};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
@@ -22,6 +21,23 @@ struct Branch {
 #[derive(Deserialize, Debug, Clone)]
 struct Commit {
     sha: String,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+struct FullCommit {
+    html_url: String,
+    commit: CommitDetails,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+struct CommitDetails {
+    message: String,
+    author: CommitAuthor,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+struct CommitAuthor {
+    name: String,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -81,6 +97,24 @@ impl GithubClient {
             Ok((items, new_etag))
         } else {
             Err(anyhow!("Failed to fetch {}: {}", url, response.status()))
+        }
+    }
+
+    async fn get_commit(&self, repo_full_name: &str, sha: &str) -> Result<FullCommit> {
+        let url = format!(
+            "https://api.github.com/repos/{}/commits/{}",
+            repo_full_name, sha
+        );
+        let response = self.client.get(&url).send().await?;
+        if response.status().is_success() {
+            let commit = response.json().await?;
+            Ok(commit)
+        } else {
+            Err(anyhow!(
+                "Failed to fetch commit {}: {}",
+                sha,
+                response.status()
+            ))
         }
     }
 }
@@ -148,7 +182,14 @@ impl GithubNotifier {
             let key = format!("{}/{}", repo.full_name, branch.name);
             if let Some(seen_sha) = self.seen_commits.get(&key) {
                 if *seen_sha != branch.commit.sha {
-                    commits_to_notify.push((repo.full_name.clone(), branch.name.clone(), branch.commit.sha.clone()));
+                    match self.client.get_commit(&repo.full_name, &branch.commit.sha).await {
+                        Ok(commit_details) => {
+                            commits_to_notify.push((repo.full_name.clone(), branch.name.clone(), commit_details));
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to get commit details for {}: {}", branch.commit.sha, e);
+                        }
+                    }
                     self.seen_commits.insert(key, branch.commit.sha);
                 }
             } else {
@@ -169,8 +210,8 @@ impl GithubNotifier {
             }
         };
 
-        for (repo_full_name, branch_name, commit_sha) in commits_to_notify {
-            self.notify_commit(&repo_full_name, &branch_name, &commit_sha).await;
+        for (repo_full_name, branch_name, commit) in commits_to_notify {
+            self.notify_commit(&repo_full_name, &branch_name, &commit).await;
         }
 
         for branch_name in new_branches_to_notify {
@@ -206,17 +247,19 @@ impl GithubNotifier {
         Ok(())
     }
 
-    async fn notify_commit(&self, repo_full_name: &str, branch_name: &str, commit_sha: &str) {
+    async fn notify_commit(&self, repo_full_name: &str, branch_name: &str, commit: &FullCommit) {
         let title = format!("New Commit on {}/{}", repo_full_name, branch_name);
-        let body = format!("SHA: {}", commit_sha);
+        let body = format!(
+            "By {}: {}\nURL: {}",
+            commit.commit.author.name, commit.commit.message, commit.html_url
+        );
         println!("{} - {}", title, body);
         self.send_notification(&title, &body);
     }
 
     async fn notify_pr(&self, repo_full_name: &str, pr: &PullRequest) {
         let title = format!("New PR in {}", repo_full_name);
-        let body = format!("#{} {} by {}
-{}", pr.id, pr.title, pr.user.login, pr.html_url);
+        let body = format!("#{} {} by {}\n{}", pr.id, pr.title, pr.user.login, pr.html_url);
         println!("{} - {}", title, body);
         self.send_notification(&title, &body);
     }
