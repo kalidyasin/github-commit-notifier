@@ -176,9 +176,11 @@ impl GithubNotifier {
 
         let mut current_branches = HashSet::new();
         let mut commits_to_notify = Vec::new();
+        let mut branches_with_commit_info = Vec::new();
 
         for branch in branches {
             current_branches.insert(branch.name.clone());
+            branches_with_commit_info.push(branch.clone());
             let key = format!("{}/{}", repo.full_name, branch.name);
             if let Some(seen_sha) = self.seen_commits.get(&key) {
                 if *seen_sha != branch.commit.sha {
@@ -215,7 +217,16 @@ impl GithubNotifier {
         }
 
         for branch_name in new_branches_to_notify {
-            self.notify_branch(&repo.full_name, &branch_name).await;
+            if let Some(branch_info) = branches_with_commit_info.iter().find(|b| b.name == branch_name) {
+                match self.client.get_commit(&repo.full_name, &branch_info.commit.sha).await {
+                    Ok(commit_details) => {
+                        self.notify_branch(&repo.full_name, &branch_name, &commit_details).await;
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to get commit details for new branch {}: {}", branch_name, e);
+                    }
+                }
+            }
         }
 
         Ok(())
@@ -259,14 +270,15 @@ impl GithubNotifier {
 
     async fn notify_pr(&self, repo_full_name: &str, pr: &PullRequest) {
         let title = format!("New PR in {}", repo_full_name);
-        let body = format!("#{} {} by {}\n{}", pr.id, pr.title, pr.user.login, pr.html_url);
+        let body = format!("#{} {}\nBy: {}\nURL: {}", pr.id, pr.title, pr.user.login, pr.html_url);
         println!("{} - {}", title, body);
         self.send_notification(&title, &body);
     }
 
-    async fn notify_branch(&self, repo_full_name: &str, branch_name: &str) {
+    async fn notify_branch(&self, repo_full_name: &str, branch_name: &str, commit: &FullCommit) {
         let title = format!("New Branch in {}", repo_full_name);
-        let body = format!("Branch: {}", branch_name);
+        let branch_url = format!("https://github.com/{}/tree/{}", repo_full_name, branch_name);
+        let body = format!("Branch: {}\nBy: {}\nURL: {}", branch_name, commit.commit.author.name, branch_url);
         println!("{} - {}", title, body);
         self.send_notification(&title, &body);
     }
